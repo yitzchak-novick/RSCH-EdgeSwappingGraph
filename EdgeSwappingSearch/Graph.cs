@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using static EdgeSwappingSearch.Utils;
 
 namespace EdgeSwappingSearch
 {
@@ -25,9 +26,9 @@ namespace EdgeSwappingSearch
 
             public double Fi => (double)SumOfNeighborsDegrees / (Degree * Degree);
 
-            public bool IsHappy => Degree > (double)SumOfNeighborsDegrees/Degree;
+            public bool IsHappy => Degree * Degree > SumOfNeighborsDegrees;
 
-            public bool IsSad => Degree < (double) SumOfNeighborsDegrees/Degree;
+            public bool IsSad => Degree * Degree < SumOfNeighborsDegrees;
 
             public bool IsNeutral => Degree*Degree == SumOfNeighborsDegrees;
 
@@ -82,8 +83,7 @@ namespace EdgeSwappingSearch
                 double denominator = oneOverM*0.5*sumOfSquaresOfAllEdgeEndPoints -
                                      squareOfOneOverMHalfSumOfEdgeEndPoints;
 
-                // think this is only possible with perfect assortativity, should probably come back and
-                // examine this more closely at some point
+                // if all vertices are of the same degree the denominator will be 0, special case of perfect assorativity
                 if (denominator == 0)
                     return 1.0;
 
@@ -91,10 +91,28 @@ namespace EdgeSwappingSearch
             }
         }
 
+        private double _minFi = double.MaxValue;
+        public double MinFi => _minFi;
+
+        private double _maxFi = double.MinValue;
+        public double MaxFi => _maxFi;
+
+        private int _countHappy = 0;
+        public int CountHappy => _countHappy;
+
+        private int _countSad = 0;
+        public int CountSad => _countSad;
+
+        private int _countNeutral = 0;
+        public int CountNeutral => _countNeutral;
+
         public bool AddEdge(String id1, String id2)
         {
-            GraphVertex v1, v2;
+            if (id1 == id2)
+                throw new Exception("Self Loops Are Not Allowed");
 
+            GraphVertex v1, v2;
+            
             if (!_allVertices.ContainsKey(id1))
                 _allVertices[id1] = new GraphVertex(id1);
             
@@ -137,9 +155,31 @@ namespace EdgeSwappingSearch
             foreach (var v in v2._neighbors)
                 affectedVertices.Add(v);
 
+            // Remember what the old min and max FI were, if one of these ends up higher/lower, or if 
+            // one of these was that val and now isn't, we have to update
+            var oldMinFi = MinFi;
+            var oldMaxFi = MaxFi;
+            bool oldMinFiChanged = false;
+            bool oldMaxFiChanged = false;
+
             // remove the Fis of all affected vertices, add them back in after the attachment
             foreach (var v in affectedVertices)
-                _sumOfAllFis -= v.Degree > 0 ? v.Fi : 0;
+            {
+                if (v.Degree > 0) // The two involved in the edge could be new
+                {
+                    _sumOfAllFis -= v.Fi;
+                    if (Math.Abs(v.Fi - oldMinFi) < TOLERANCE)
+                        oldMinFiChanged = true;
+                    if (Math.Abs(v.Fi - oldMaxFi) < TOLERANCE)
+                        oldMaxFiChanged = true;
+                    if (v.IsHappy)
+                        _countHappy--;
+                    else if (v.IsSad)
+                        _countSad--;
+                    else
+                        _countNeutral--;
+                }
+            }
 
             // update the degrees and sums of the two vertices
             v1._degree = v1NewDegree;
@@ -152,10 +192,26 @@ namespace EdgeSwappingSearch
             foreach (var neighbor in v2._neighbors)
                 neighbor._sumOfNeighborsDegrees++;
             
-            // add the new FIs into the total
-            foreach (var v in affectedVertices)
-                _sumOfAllFis += v.Fi;
+            // Find the min/max of these affected vertices, it could be the new min/max
+            var minFiOfAffected = double.MaxValue;
+            var maxFiOfAffected = double.MinValue;
             
+            // add the new FIs into the total, update other stats
+            foreach (var v in affectedVertices)
+            {
+                _sumOfAllFis += v.Fi; // Add fi back in (we know the vertex is at least degree 1 now)
+                // Update counts of happy, sad, neutral
+                if (v.IsHappy)
+                    _countHappy++;
+                else if (v.IsSad)
+                    _countSad++;
+                else
+                    _countNeutral++;
+                // note the min/max of the affected
+                minFiOfAffected = Math.Min(minFiOfAffected, v.Fi);
+                maxFiOfAffected = Math.Max(maxFiOfAffected, v.Fi);
+            }
+
             // if these were degree 0 (either they are new, or just were degree 0) update the collection
             // of relevant vertices
             if (v1OldDegree == 0)
@@ -169,6 +225,19 @@ namespace EdgeSwappingSearch
                 _verticesWithDegree.Add(v2);
                 countOfVertices++;
             }
+
+            if (minFiOfAffected <= oldMinFi) // new min
+                _minFi = minFiOfAffected;
+            // if one of these used to be the min and now isn't, we have to scan the whole
+            // collection to find the new min. This is O(n) but shouldn't happen very often
+            else if (oldMinFiChanged) 
+                _minFi = Vertices.Min(v => v.Fi);
+
+            // Update max
+            if (maxFiOfAffected >= oldMaxFi)
+                _maxFi = maxFiOfAffected;
+            else if (oldMaxFiChanged)
+                _maxFi = Vertices.Max(v => v.Fi);
 
             // actually attach the vertices
             v1._neighbors.Add(v2);
@@ -222,9 +291,28 @@ namespace EdgeSwappingSearch
             foreach (var v in v2._neighbors)
                 affectedVertices.Add(v);
 
-            // remove the Fis of all affected vertices, add them back in after the attachment
+            // Remember what the old min and max FI were, if one of these ends up higher/lower, or if 
+            // one of these was that val and now isn't, we have to update
+            var oldMinFi = MinFi;
+            var oldMaxFi = MaxFi;
+            bool oldMinFiChanged = false;
+            bool oldMaxFiChanged = false;
+
+            // remove the Fis of all affected vertices, add them back in after the detachment
             foreach (var v in affectedVertices)
+            {
                 _sumOfAllFis -= v.Fi;
+                if (Math.Abs(v.Fi - oldMinFi) < TOLERANCE)
+                    oldMinFiChanged = true;
+                if (Math.Abs(v.Fi - oldMaxFi) < TOLERANCE)
+                    oldMaxFiChanged = true;
+                if (v.IsHappy)
+                    _countHappy--;
+                else if (v.IsSad)
+                    _countSad--;
+                else
+                    _countNeutral--;
+            }
 
             // update the degrees and sums of the two vertices
             v1._degree--;
@@ -245,14 +333,33 @@ namespace EdgeSwappingSearch
                 neighbor._sumOfNeighborsDegrees--;
             }
 
-            // add the new FIs into the total
+            // Find the min/max of these affected vertices, it could be the new min/max
+            var minFiOfAffected = double.MaxValue;
+            var maxFiOfAffected = double.MinValue;
+
+            // add the new FIs into the total, update other stats
             foreach (var v in affectedVertices)
-                _sumOfAllFis += v.Degree == 0 ? 0 : v.Fi;
+            {
+                if (v.Degree > 0) // removing the edge may have made a vertex degree 0
+                {
+                    _sumOfAllFis += v.Fi; // Add fi back in 
+                    // Update counts of happy, sad, neutral
+                    if (v.IsHappy)
+                        _countHappy++;
+                    else if (v.IsSad)
+                        _countSad++;
+                    else
+                        _countNeutral++;
+                    // note the min/max of the affected
+                    minFiOfAffected = Math.Min(minFiOfAffected, v.Fi);
+                    maxFiOfAffected = Math.Max(maxFiOfAffected, v.Fi);
+                }
+            }
 
             // actually detatch the vertices
             v1._neighbors.Remove(v2);
             v2._neighbors.Remove(v1);
-
+            
             // if a vertex is now degree 0, remove it from the collection of relevant vertices
             if (v1NewDegree == 0)
             {
@@ -264,6 +371,27 @@ namespace EdgeSwappingSearch
             {
                 _verticesWithDegree.Remove(v2);
                 countOfVertices--;
+            }
+
+            if (countOfVertices == 0) // if this was the last edge in teh graph
+            {
+                _minFi = double.NaN;
+                _maxFi = double.NaN;
+            }
+            else
+            {
+                if (minFiOfAffected <= oldMinFi) // new min
+                    _minFi = minFiOfAffected;
+                // if one of these used to be the min and now isn't, we have to scan the whole
+                // collection to find the new min. This is O(n) but shouldn't happen very often
+                else if (oldMinFiChanged)
+                    _minFi = Vertices.Min(v => v.Fi);
+
+                // Update max
+                if (maxFiOfAffected >= oldMaxFi)
+                    _maxFi = maxFiOfAffected;
+                else if (oldMaxFiChanged)
+                    _maxFi = Vertices.Max(v => v.Fi);
             }
 
             // Remove the edge from the collection
@@ -308,8 +436,28 @@ namespace EdgeSwappingSearch
             if (!(v1CurrNeighborId == v2NewNeighborId && v1NewNeighborId == v2CurrNeighborId))
                 throw new Exception("Illegal swap, edges are not an exchange of vertices");
 
-            // Remove the FIs of the 4 involved vertices
-            _sumOfAllFis -= v1.Fi + v2.Fi + v1CurrNeighbor.Fi + v2CurrNeighbor.Fi;
+            var affectedVertices = new List<Vertex> {v1, v2, v1CurrNeighbor, v2CurrNeighbor};
+            double oldMinFi = MinFi;
+            double oldMaxFi = MaxFi;
+            bool oldMinFiChanged = false;
+            bool oldMaxFiChanged = false;
+            foreach (var v in affectedVertices)
+            {
+                // Remove the FI from the total
+                _sumOfAllFis -= v.Fi;
+                // check if it is the current min or max
+                if (Math.Abs(v.Fi - oldMinFi) < TOLERANCE)
+                    oldMinFiChanged = true;
+                if (Math.Abs(v.Fi - oldMaxFi) < TOLERANCE)
+                    oldMaxFiChanged = true;
+                // Remove it from the count of happy/sad/neutral
+                if (v.IsHappy)
+                    _countHappy--;
+                else if (v.IsSad)
+                    _countSad--;
+                else
+                    _countNeutral--;
+            }
 
             // Update the sums of neighbors, remove old neighbor and add new
             v1._sumOfNeighborsDegrees += v1NewNeighbor.Degree - v1CurrNeighbor.Degree;
@@ -317,8 +465,38 @@ namespace EdgeSwappingSearch
             v1NewNeighbor._sumOfNeighborsDegrees += v1.Degree - v2.Degree;
             v2NewNeighbor._sumOfNeighborsDegrees += v2.Degree - v1.Degree;
 
-            // put back the new FIs
-            _sumOfAllFis += v1.Fi + v2.Fi + v1CurrNeighbor.Fi + v2CurrNeighbor.Fi;
+            // Find the min/max of these affected vertices, it could be the new min/max
+            var minFiOfAffected = double.MaxValue;
+            var maxFiOfAffected = double.MinValue;
+
+            // add the new FIs into the total, update other stats
+            foreach (var v in affectedVertices)
+            {
+                _sumOfAllFis += v.Fi; // Add fi back in (we know the vertex is at least degree 1 now)
+                // Update counts of happy, sad, neutral
+                if (v.IsHappy)
+                    _countHappy++;
+                else if (v.IsSad)
+                    _countSad++;
+                else
+                    _countNeutral++;
+                // note the min/max of the affected
+                minFiOfAffected = Math.Min(minFiOfAffected, v.Fi);
+                maxFiOfAffected = Math.Max(maxFiOfAffected, v.Fi);
+            }
+
+            if (minFiOfAffected <= oldMinFi) // new min
+                _minFi = minFiOfAffected;
+            // if one of these used to be the min and now isn't, we have to scan the whole
+            // collection to find the new min. This is O(n) but shouldn't happen very often
+            else if (oldMinFiChanged)
+                _minFi = Vertices.Min(v => v.Fi);
+
+            // Update max
+            if (maxFiOfAffected >= oldMaxFi)
+                _maxFi = maxFiOfAffected;
+            else if (oldMaxFiChanged)
+                _maxFi = Vertices.Max(v => v.Fi);
 
             // For assortativity, the only term that changes is the sum of products because v is multiplied by u' instead of u,
             // but the two other terms are just sums of v or v^2 and in a swap the vertices will still contribute the same amount
@@ -344,9 +522,284 @@ namespace EdgeSwappingSearch
 
         }
 
+        #region GRAPH_GENERATING_METHODS
+
+        public static Graph Clone(Graph g)
+        {
+            return Graph.NewGraphFromEdgeCollection(g.Edges.Select(e => new Tuple<string, string>(e.V1.Id, e.V2.Id)));
+        }
+
+        public Graph Clone() => Clone(this);
+
+        // The adding/removing/swapping edges was written to be optimal for swapping, but if we create the
+        // graph edge by edge it's actually less efficient than creating it all at once, setting up the 
+        // stats, and then allowing changes to update one at a time
+        public static Graph NewGraphFromEdgeCollection(IEnumerable<Tuple<string, string>> edgeCollection)
+        {
+            Graph graph = new Graph();
+
+            foreach (var edgeTuple in edgeCollection)
+            {
+                var id1 = edgeTuple.Item1;
+                var id2 = edgeTuple.Item2;
+
+                if (id1 == id2)
+                    throw new Exception("Self Loops Are Not Allowed");
+
+                GraphVertex v1, v2;
+                if (!graph._allVertices.ContainsKey(id1))
+                {
+                    v1 = graph._allVertices[id1] = new GraphVertex(id1);
+                    graph._verticesWithDegree.Add(v1);
+                    graph.countOfVertices++;
+                }
+                else
+                    v1 = graph._allVertices[id1];
+                if (!graph._allVertices.ContainsKey(id2))
+                {
+                    v2 = graph._allVertices[id2] = new GraphVertex(id2);
+                    graph._verticesWithDegree.Add(v2);
+                    graph.countOfVertices++;
+                }
+                else
+                    v2 = graph._allVertices[id2];
+                
+                if (graph._edges.ContainsKey(Edge.GetIdForEdge(v1, v2)))
+                    continue;
+
+                v1._neighbors.Add(v2);
+                v2._neighbors.Add(v1);
+
+                v1._degree++;
+                v2._degree++;
+
+                Edge e = new Edge(v1, v2);
+                graph._edges[Edge.GetIdForEdge(v1, v2)] = e;
+                graph._numberOfEdges++;
+            }
+            // now that the degrees have already been calculated set the sum of neighbors for all vertices
+            graph._allVertices.Values.ToList().ForEach(v => v._sumOfNeighborsDegrees = v.Neighbors.Sum(n => n.Degree));
+            graph._sumOfAllFis = graph._allVertices.Values.Sum(v => v.Fi);
+
+            // now set the assortativity
+            foreach (var edge in graph._edges.Values)
+            {
+                var d1 = edge.V1.Degree;
+                var d2 = edge.V2.Degree;
+
+                graph.sumOfProductsOfAllEdgeEndPoints += d1*d2;
+                graph.sumOfSquaresOfAllEdgeEndPoints += (int)(Math.Pow(d1, 2) + Math.Pow(d2, 2));
+                graph.sumOfAllEdgeEndPoints += d1 + d2;
+            }
+
+            graph._minFi = double.MaxValue;
+            graph._maxFi = double.MinValue;
+            // Now set all other stats
+            foreach (var v in graph.Vertices)
+            {
+                graph._minFi = Math.Min(graph.MinFi, v.Fi);
+                graph._maxFi = Math.Max(graph.MaxFi, v.Fi);
+                if (v.IsHappy)
+                    graph._countHappy++;
+                if (v.IsSad)
+                    graph._countSad++;
+                if (v.IsNeutral)
+                    graph._countNeutral++;
+            }
+            return graph;
+        }
+
+        // just to allow another format, will just wrap around the other method, it's just as efficient as it would be
+        // to add the edges from the lists
+        public static Graph NewGraphFromAdjacencyLists(IEnumerable<Tuple<string, IEnumerable<string>>> adjacencyLists)
+        {
+            var edgeCollection = new HashSet<Tuple<string, string>>();
+            foreach (var adjacencyList in adjacencyLists)
+            {
+                foreach (var neighborId in adjacencyList.Item2)
+                {
+                    var id1 = adjacencyList.Item1.CompareTo(neighborId) < 0 ? adjacencyList.Item1 : neighborId;
+                    var id2 = id1 == neighborId ? adjacencyList.Item1 : neighborId;
+
+                    edgeCollection.Add(new Tuple<string, string>(id1, id2));
+                }
+            }
+            return NewGraphFromEdgeCollection(edgeCollection);
+        }
+
+        public static Graph NewErdosRenyiGraph(int n, double p)
+        {
+            // Should run through this a few times to make sure it's basically working
+            throw new Exception("Test this code");
+
+            // NOTE: Orphan vertices are simply not added to the graph, this is fine because they 
+            // are not relevant to any FI calculations and they can't participate in edge swaps, 
+            // there's really no way for them to play a role
+            RandomGenerator rand = RandomGenerator.NextRandomGenerator();
+            Graph graph = new Graph();
+
+            for (int i = 1; i <= n; i++)
+                for (int j = i + 1; j <= n; j++)
+                    if (rand.GetTrueWithProbability(p))
+                        graph.AddEdge(i.ToString(), j.ToString());
+
+            return graph;
+        }
+
+        public static Graph NewBarabasiAlbertGraph(int n, int m)
+        {
+            // have to run through this code a few times and make sure it actually works
+            throw new Exception("Test this code before using");
+
+            RandomGenerator rand = RandomGenerator.NextRandomGenerator();
+
+            Graph graph = new Graph();
+            
+            // Start with one vertex attached to m other vertices
+            for (int i = 2; i <= m + 1; i++)
+                graph.AddEdge(1.ToString(), i.ToString());
+
+            for (int i = m + 2; i <= n; i++)
+            {
+                int sumOfAllDegrees = graph.NumberOfEdges*2;
+                var vertices = new HashSet<Vertex>(graph.Vertices);
+
+                for (int j = 0; j < m; j++)
+                {
+                    int curr = 0;
+                    double selectedVal = rand.NextDouble()*sumOfAllDegrees;
+                   
+                    
+                    foreach (var v in vertices)
+                    {
+                        if (curr <= selectedVal && curr + v.Degree > selectedVal)
+                        {
+                            graph.AddEdge(i.ToString(), v.Id);
+                            vertices.Remove(v);
+                            sumOfAllDegrees -= v.Degree;
+                            break;
+                        }
+                        curr += v.Degree;
+                    }
+                }
+            }
+
+            return graph;
+        }
+
+        // Uses the Erdos Gallai algorithm to establish whether or not a sequence is graphic 
+        public static bool SequenceIsGraphic(IEnumerable<int> degreeSequence)
+        {
+            // taken straight from previous code without any modification
+            // so presumably this doesn't need to be tested?
+            List<int> degrees = degreeSequence.OrderByDescending(i => i).ToList();
+
+            if (degrees.Sum(i => i) % 2 != 0)
+                return false;
+
+            for (int k = 1; k <= degrees.Count; k++)
+            {
+                var leftSum = 0;
+                for (int i = 1; i <= k; i++)
+                    leftSum += degrees[i - 1];
+                var rightSum = k * (k - 1);
+                for (int i = k + 1; i <= degrees.Count; i++)
+                    rightSum += Math.Min(k, degrees[i - 1]);
+                if (leftSum > rightSum)
+                    return false;
+            }
+            return true;
+        }
+
+        public static Graph NewDHavelHakimiGraph(IEnumerable<int> DegreeSequence)
+        {
+            throw new Exception("Not yet written");
+            // Can try to look at the previous code, I think it has the algorithm written
+            // out correctly. Point just is to use a stable sort to sort the vertices so
+            // that any vertex that has a higher degree than another will come first in the
+            // list if they have the same remaining degree. This doesn't provide optimal
+            // low AFI, but we have to see if it's a nice head start
+        }
+
+        public static Graph NewRandomBlitzsteinDiaconisGraph(IEnumerable<int> DegreeSequence)
+        {
+            // Taken from previous code but should be run through a few times to verify
+            // that it's working
+            throw new Exception("Test this code before using");
+
+            var sequence = DegreeSequence.OrderByDescending(i => i).ToList();
+            if (!SequenceIsGraphic(sequence))
+                return null; // Throw Exception?
+
+            HashSet<Tuple<int, int>> edges = new HashSet<Tuple<int, int>>();
+
+            var rand = RandomGenerator.NextRandomGenerator();
+
+            var totalEdgesToAdd = sequence.Sum()/2;
+
+            while (totalEdgesToAdd > 0)
+            {
+                int currMinValue = sequence.Where(i => i > 0).Min();
+                int chosenIndex = 0;
+                int tmpIndx;
+                while (sequence[chosenIndex] != currMinValue)
+                    chosenIndex++;
+
+                // experimenting with a chosen index that isn't necessarily a min
+                tmpIndx = 0;
+                var nonZeros =
+                    sequence.Select(i => new {location = tmpIndx++, value = i}).Where(v => v.value > 0).ToList();
+                chosenIndex = nonZeros[rand.NextInt(0, nonZeros.Count)].location;
+
+                tmpIndx = 0;
+                var possibleNeighbors =
+                    sequence.Select(i => new {location = tmpIndx++, value = i})
+                        .Where(
+                            v =>
+                                v.value > 0 && v.location != chosenIndex &&
+                                !edges.Any(
+                                    e =>
+                                        e.Item1 == Math.Min(chosenIndex, v.location) &&
+                                        e.Item2 == Math.Max(chosenIndex, v.location)))
+                        .ToList();
+
+                while (sequence[chosenIndex] > 0)
+                {
+                    var nextNeighborIndex = rand.NextInt(0, possibleNeighbors.Count);
+                    var nextNeighbor = possibleNeighbors[nextNeighborIndex];
+
+                    // check if the resulting sequence would be graphic
+                    sequence[chosenIndex]--;
+                    sequence[nextNeighbor.location]--;
+                    if (!SequenceIsGraphic(sequence))
+                    {
+                        // put back the degrees we removed
+                        sequence[chosenIndex]++;
+                        sequence[nextNeighbor.location]++;
+                    }
+                    else // add an edge
+                    {
+                        edges.Add(new Tuple<int, int>(Math.Min(chosenIndex, nextNeighbor.location),
+                            Math.Max(chosenIndex, nextNeighbor.location)));
+                        totalEdgesToAdd--;
+                    }
+                    possibleNeighbors.RemoveAt(nextNeighborIndex);
+                }
+            }
+
+            Graph g = new Graph();
+            edges.ToList().ForEach(e => g.AddEdge((e.Item1 + 1).ToString(), (e.Item2 + 1).ToString()));
+            return g;
+        }
+
+
+
+        #endregion
+        
+        
         // Things to add
-        // ER, BA, HH (DHH), BD_Random
-        // MAX, MIN, No. Pos, No. Neg, No. Neut, etc.
+        // ER, BA, HH (DHH), BD_Random *** ADDED BUT TEST ***
+        // Should probably add old IsIsomorphic code just for some sanity testing here and there..
         // A searching class that uses this class and searches...
 
     }

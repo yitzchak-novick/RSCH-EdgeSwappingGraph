@@ -8,17 +8,44 @@ namespace EdgeSwappingSearch
 {
     public class RandomGenerator
     {
-        private static Random SharedRandom = new Random();
+        private static Lazy<Random> SharedRandom = new Lazy<Random>(() => new Random());
         private Random random;
 
-        public RandomGenerator()
+        private RandomGenerator()
         {
-            this.random = new Random(SharedRandom.Next());    
+            this.random = new Random(SharedRandom.Value.Next());
         }
 
-        public int NextInt => random.Next();
-        public double NextDouble => random.NextDouble();
-        public bool GetTrueWithProbability(double p) => random.NextDouble() < p;
-        public bool NextBool => GetTrueWithProbability(0.5);
+        // not sure why, I prefer to hide the constructor to make it obvious to the 
+        // caller that we are generating a new one from a random number
+        public static RandomGenerator NextRandomGenerator()
+        {
+            return new RandomGenerator();
+        }
+
+        public int NextInt(int min, int max)
+        {
+            return random.Next(min, max);
+        }
+
+        public int NextInt()
+        {
+            return random.Next();
+        }
+
+        public double NextDouble()
+        {
+            return random.NextDouble();
+        }
+
+        public bool GetTrueWithProbability(double p)
+        {
+            return random.NextDouble() < p;
+        }
+
+        public bool NextBool()
+        {
+            return GetTrueWithProbability(0.5);
+        }
     }
 }

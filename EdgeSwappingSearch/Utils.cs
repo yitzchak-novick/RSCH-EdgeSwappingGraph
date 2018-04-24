@@ -6,7 +6,8 @@ using System.Threading.Tasks;
 
 namespace EdgeSwappingSearch
 {
-    public static class ExtensionMethods
+    public class Utils
     {
+        public static readonly double TOLERANCE = 0.00000001;
     }
 }
